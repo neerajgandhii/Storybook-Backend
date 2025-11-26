@@ -44,7 +44,7 @@ The server will start at `http://localhost:8000`
 ### Generate Rounds
 **POST** `/api/storybook/generate-rounds`
 
-Generate 2 AI-created text rounds for the storybook challenge.
+Generate 2 AI-created text rounds for the storybook challenge. Each round contains 5-6 sentences strategically designed to test for dyslexia markers (visual confusion, phonological cues, sequencing).
 
 **Request:**
 ```json
@@ -62,20 +62,28 @@ Generate 2 AI-created text rounds for the storybook challenge.
       "id": "ai-4",
       "type": "text",
       "promptText": "Tap the sentences in the correct story order:",
-      "items": ["Sentence 1", "Sentence 2", "Sentence 3"],
+      "items": ["Sentence 1", "Sentence 2", "Sentence 3", "Sentence 4", "Sentence 5", "Sentence 6"],
       "aiGenerated": true
     },
     {
       "id": "ai-5",
       "type": "text",
       "promptText": "Tap the sentences in the correct story order:",
-      "items": ["Sentence 1", "Sentence 2", "Sentence 3"],
+      "items": ["Sentence 1", "Sentence 2", "Sentence 3", "Sentence 4", "Sentence 5"],
       "aiGenerated": true
     }
   ],
   "source": "ai"
 }
 ```
+
+**Sentence Design:**
+- 5-6 sentences per round (increased from 3 for more diagnostic depth)
+- Includes visually confusing letter pairs: b/d, p/q, n/u
+- Includes phonologically similar words (different meanings)
+- Includes temporal sequencing words: first, then, after, before, finally
+- Varied sentence length and structure
+- Coherent narrative for proper sequencing assessment
 
 **Response (Fallback):**
 ```json
@@ -88,15 +96,15 @@ Generate 2 AI-created text rounds for the storybook challenge.
 ### Analyze Response
 **POST** `/api/storybook/analyze-response`
 
-Analyze user's ordering for dyslexia-relevant cues.
+Analyze user's ordering for dyslexia-relevant cues. The analysis focuses on detecting patterns that the intentionally-challenging sentences were designed to expose.
 
 **Request:**
 ```json
 {
   "roundId": "ai-4",
   "promptText": "Tap the sentences in the correct story order:",
-  "items": ["Sentence 1", "Sentence 2", "Sentence 3"],
-  "userOrder": [2, 1, 3],
+  "items": ["Sentence 1", "Sentence 2", "Sentence 3", "Sentence 4", "Sentence 5"],
+  "userOrder": [2, 1, 3, 4, 5],
   "sessionId": "optional-session-id",
   "preferredLanguage": "english"
 }
@@ -107,30 +115,38 @@ Analyze user's ordering for dyslexia-relevant cues.
 {
   "analysis": {
     "sequencing": {
-      "score": 0.2,
-      "note": "Reordered sentences breaking causal chain."
+      "score": 0.6,
+      "note": "Child partially understood temporal sequence but struggled with connector words."
     },
     "omissions": {
-      "score": 0.0,
-      "note": "No key elements omitted."
+      "score": 0.1,
+      "note": "No key elements omitted from the sequence."
     },
     "visualConfusion": {
-      "score": 0.1,
-      "note": "No letter-shape confusion observed."
+      "score": 0.8,
+      "note": "Evidence of b/d confusion: child mixed sentences with 'bed' and 'doll' suggesting letter-shape difficulty."
     },
     "phonologicalCue": {
-      "score": 0.3,
-      "note": "Some emphasis on sound/rhyme."
+      "score": 0.7,
+      "note": "Child prioritized sound patterns over visual word forms in ordering decisions."
     },
     "recommendedFollowUps": [
-      "Ask the child to retell the story in their own words.",
-      "Why did you put sentence 1 first?"
+      "Ask the child to read the sentences aloud and listen for similar sounds.",
+      "Point out letter pairs (b/d, p/q) and ask the child to distinguish them.",
+      "Have the child retell the story in their own words to assess comprehension."
     ],
     "confidence": 0.85
   },
   "source": "ai"
 }
 ```
+
+**Analysis Markers:**
+- **visualConfusion**: 0-1 scale detecting evidence of b/d, p/q, n/u letter-shape confusion
+- **phonologicalCue**: 0-1 scale detecting if child relies on sound patterns over visual form
+- **sequencing**: 0-1 scale measuring ability to order by temporal cues (first, then, after, before, finally)
+- **omissions**: 0-1 scale for missing narrative elements
+- **recommendedFollowUps**: Targeted assessment questions based on detected patterns
 
 ### Health Check
 **GET** `/health`
@@ -168,8 +184,13 @@ Once the server is running, visit:
 - **Free Tier Limits:** ~60 requests/minute, ~1500 requests/day
 - **Timeout:** 12 seconds per API call
 - **Caching:** Generated rounds are cached per `sessionId` to avoid repeated calls
-- **Fallback:** Hardcoded fallback rounds are returned if generation fails
+- **Fallback:** Hardcoded fallback rounds are returned if generation fails (2 rounds with 3 sentences each)
 - **CORS:** Enabled for all origins (configure for production)
+- **AI Sentence Generation:** Each round now generates 5-6 sentences (increased from 3) with:
+  - Visual confusion markers (b/d, p/q, n/u letter pairs)
+  - Phonological confusion markers (similar sounds, different meanings)
+  - Temporal sequencing words (first, then, after, before, finally)
+- **Response Analysis:** Enhanced Gemini prompt specifically looks for evidence of visual/phonological confusion patterns in user ordering choices
 
 ## Frontend Integration
 

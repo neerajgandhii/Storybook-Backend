@@ -114,20 +114,34 @@ async def generate_rounds(request: GenerateRoundsRequest):
         cached = rounds_cache[request.sessionId]
         return GenerateRoundsResponse(rounds=cached, source="ai")
     
-    # Build prompt
-    prompt = f"""You are a short children's story prompt generator for a dyslexia screening test.
-Return exactly 2 rounds as JSON. Each round must have these fields:
+    # Build prompt - designed to elicit visual confusion and phonological cues
+    prompt = f"""You are creating personalized dyslexia screening stories for a child. These stories should help identify potential dyslexia markers through careful sequencing challenges.
+
+Return exactly 2 rounds as JSON. Each round must have:
 - id: string (e.g., "ai-4", "ai-5")
 - type: "text"
-- promptText: one-line instruction for the child (e.g., "Tap the sentences in the correct story order:")
-- items: array of exactly 3 short sentences (each 6–12 words) that form a coherent story
+- promptText: instruction (e.g., "Tap the sentences in the correct story order:")
+- items: array of exactly 5-6 short sentences (8-15 words each) forming a coherent story
 
-Keep sentences simple, age-appropriate, and in English-friendly structure.
+IMPORTANT - Design sentences to expose dyslexia markers:
+1. Include words with visually similar letters (b/d, p/q, n/u) to detect VISUAL CONFUSION
+2. Include words with similar sounds but different meanings to detect PHONOLOGICAL CUES
+3. Include temporal sequencing words (first, then, after, before, finally) to test SEQUENCING
+4. Vary sentence length and structure to test reading comprehension
+5. Make the story internally coherent so correct sequencing is clear
+
+Example structures:
+- "The boy and girl began their day." (b/d confusion potential)
+- "The doll was different from the dollar." (d/b and similar sounds)
+- "Before the bell rang, Dan and Ben ran." (temporal + visual confusion)
+
+Generate 2 different stories, each with 5-6 sentences. Make them age-appropriate but strategically challenging.
+Keep sentences simple vocabulary but structurally interesting.
 Return ONLY valid JSON with key "rounds" containing an array of 2 round objects.
 Language: {request.preferredLanguage}
 
 Example format:
-{{"rounds": [{{"id": "ai-4", "type": "text", "promptText": "Tap...", "items": ["...", "...", "..."]}}, {{"id": "ai-5", "type": "text", "promptText": "Tap...", "items": ["...", "...", "..."]}}]}}
+{{"rounds": [{{"id": "ai-4", "type": "text", "promptText": "Tap...", "items": ["sentence 1", "sentence 2", "sentence 3", "sentence 4", "sentence 5"]}}, {{"id": "ai-5", "type": "text", "promptText": "Tap...", "items": ["sentence 1", "sentence 2", "sentence 3", "sentence 4", "sentence 5", "sentence 6"]}}]}}
 """
     
     # Call Gemini
@@ -156,8 +170,8 @@ Example format:
         if not all(k in round_data for k in ["id", "type", "promptText", "items"]):
             print(f"[generate-rounds] Round {i} missing required fields")
             return GenerateRoundsResponse(rounds=FALLBACK_ROUNDS, source="fallback")
-        if len(round_data["items"]) != 3:
-            print(f"[generate-rounds] Round {i} has {len(round_data['items'])} items, expected 3")
+        if len(round_data["items"]) < 5:
+            print(f"[generate-rounds] Round {i} has {len(round_data['items'])} items, expected 5-6")
             return GenerateRoundsResponse(rounds=FALLBACK_ROUNDS, source="fallback")
         round_data["aiGenerated"] = True
     
@@ -177,25 +191,39 @@ async def analyze_response(request: AnalyzeResponseRequest):
     # Build analysis prompt
     user_order_str = ", ".join([str(i) for i in request.userOrder])
     items_str = "\n".join([f"{i+1}. {item}" for i, item in enumerate(request.items)])
+    correct_order = list(range(1, len(request.items) + 1))  # Expected order: 1, 2, 3, ...
+    correct_order_str = ", ".join([str(i) for i in correct_order])
     
     prompt = f"""You are an expert assessor of reading and sequencing interpretation for dyslexia screening (this is a screening aid, not a diagnosis).
 
+The child was asked to read and order sentences that were intentionally designed to test for dyslexia markers:
+- Visual confusion (b/d, p/q, n/u confusion)
+- Phonological cues (sound-based reasoning over visual)
+- Sequencing ability (temporal words: first, then, after, before, finally)
+
 Prompt given to child: "{request.promptText}"
 
-Story sentences:
+Story sentences (correct order should be: {correct_order_str}):
 {items_str}
 
-Child selected and ordered them as: {user_order_str} (using 1-based indices)
+Child's response (order they selected): {user_order_str}
 
-Analyze the child's response and return ONLY a JSON object with these fields:
-- sequencing: {{score: 0-1, note: "short explanation of sequencing understanding"}}
+Analyze the child's response focusing on:
+1. Did they get the sequencing correct?
+2. If incorrect, does it suggest visual confusion (mixing similar-looking letters)?
+3. Does it suggest phonological reasoning (mixing similar-sounding words)?
+4. Any patterns in which sentences were misplaced?
+
+Return ONLY a JSON object with these fields:
+- sequencing: {{score: 0-1, note: "explanation of sequencing understanding"}}
 - omissions: {{score: 0-1, note: "explanation of any missing key elements"}}
-- visualConfusion: {{score: 0-1, note: "evidence of visual-letter confusion"}}
+- visualConfusion: {{score: 0-1, note: "evidence of visual-letter confusion (b/d/p/q/n/u)"}}
 - phonologicalCue: {{score: 0-1, note: "evidence of phonological/sound-based reasoning"}}
-- recommendedFollowUps: ["question 1", "question 2"]
+- recommendedFollowUps: ["question 1", "question 2", "question 3"]
 - confidence: 0-1
 
-Scores: 0=not present, 0.5=possibly present, 1=clearly present.
+Scores: 0=not present, 0.3-0.6=possibly present, 1=clearly present.
+Focus on the markers that the sentences were designed to detect.
 Return ONLY valid JSON, nothing else.
 """
     
@@ -205,11 +233,11 @@ Return ONLY valid JSON, nothing else.
     if not response_text:
         # Fallback analysis
         fallback_analysis = {
-            "sequencing": {"score": 0.5, "note": "Unable to assess."},
-            "omissions": {"score": 0.5, "note": "Unable to assess."},
-            "visualConfusion": {"score": 0.1, "note": "No clear visual confusion detected."},
-            "phonologicalCue": {"score": 0.2, "note": "No clear phonological emphasis detected."},
-            "recommendedFollowUps": ["Ask the child to retell the story.", "Ask why they chose this order."],
+            "sequencing": {"score": 0.5, "note": "Unable to assess sequencing patterns."},
+            "omissions": {"score": 0.5, "note": "Unable to assess for omissions."},
+            "visualConfusion": {"score": 0.2, "note": "No clear visual confusion patterns detected in this attempt."},
+            "phonologicalCue": {"score": 0.2, "note": "No clear phonological emphasis detected in this attempt."},
+            "recommendedFollowUps": ["Ask the child to read the sentences aloud to listen for phonological patterns.", "Ask why they chose that specific order."],
             "confidence": 0.3
         }
         return AnalyzeResponseResponse(analysis=fallback_analysis, source="fallback")
@@ -218,11 +246,11 @@ Return ONLY valid JSON, nothing else.
     parsed = parse_json_response(response_text)
     if not parsed:
         fallback_analysis = {
-            "sequencing": {"score": 0.5, "note": "Unable to assess."},
-            "omissions": {"score": 0.5, "note": "Unable to assess."},
-            "visualConfusion": {"score": 0.1, "note": "No clear visual confusion detected."},
-            "phonologicalCue": {"score": 0.2, "note": "No clear phonological emphasis detected."},
-            "recommendedFollowUps": ["Ask the child to retell the story.", "Ask why they chose this order."],
+            "sequencing": {"score": 0.5, "note": "Unable to assess sequencing patterns."},
+            "omissions": {"score": 0.5, "note": "Unable to assess for omissions."},
+            "visualConfusion": {"score": 0.2, "note": "No clear visual confusion patterns detected in this attempt."},
+            "phonologicalCue": {"score": 0.2, "note": "No clear phonological emphasis detected in this attempt."},
+            "recommendedFollowUps": ["Ask the child to read the sentences aloud to listen for phonological patterns.", "Ask why they chose that specific order."],
             "confidence": 0.3
         }
         return AnalyzeResponseResponse(analysis=fallback_analysis, source="fallback")
@@ -231,11 +259,11 @@ Return ONLY valid JSON, nothing else.
     required_fields = ["sequencing", "omissions", "visualConfusion", "phonologicalCue", "recommendedFollowUps", "confidence"]
     if not all(field in parsed for field in required_fields):
         fallback_analysis = {
-            "sequencing": {"score": 0.5, "note": "Unable to assess."},
-            "omissions": {"score": 0.5, "note": "Unable to assess."},
-            "visualConfusion": {"score": 0.1, "note": "No clear visual confusion detected."},
-            "phonologicalCue": {"score": 0.2, "note": "No clear phonological emphasis detected."},
-            "recommendedFollowUps": ["Ask the child to retell the story.", "Ask why they chose this order."],
+            "sequencing": {"score": 0.5, "note": "Unable to assess sequencing patterns."},
+            "omissions": {"score": 0.5, "note": "Unable to assess for omissions."},
+            "visualConfusion": {"score": 0.2, "note": "No clear visual confusion patterns detected in this attempt."},
+            "phonologicalCue": {"score": 0.2, "note": "No clear phonological emphasis detected in this attempt."},
+            "recommendedFollowUps": ["Ask the child to read the sentences aloud to listen for phonological patterns.", "Ask why they chose that specific order."],
             "confidence": 0.3
         }
         return AnalyzeResponseResponse(analysis=fallback_analysis, source="fallback")
