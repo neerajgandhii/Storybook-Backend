@@ -89,7 +89,7 @@ def call_gemini_with_retry(prompt: str, max_retries: int = 2) -> Optional[str]:
     
     for attempt in range(max_retries):
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            model = genai.GenerativeModel('gemini-2.5-flash-lite')
             response = model.generate_content(prompt)
             print(f"Gemini API call succeeded on attempt {attempt + 1}")
             return response.text
